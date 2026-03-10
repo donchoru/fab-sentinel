@@ -795,7 +795,7 @@ elif page == "감지 로그":
     try:
         anomalies = api.get_anomalies(limit=50)
         if anomalies:
-            for status_val in ["detected", "acknowledged", "investigating", "resolved"]:
+            for status_val in ["detected", "in_progress", "resolved"]:
                 filtered = [a for a in anomalies if a.get("status") == status_val]
                 if filtered:
                     st.markdown(f'{badge(status_val.upper() + f" ({len(filtered)})", status_val)}', unsafe_allow_html=True)
