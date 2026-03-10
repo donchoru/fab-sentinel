@@ -71,6 +71,89 @@
 
 **감지 에이전트**는 이상을 발견하면 토픽에 계속 던지기만 합니다. **RCA 에이전트**가 그걸 받아서 ReAct 루프로 추가 DB 조회 → 근본원인 분석 → 결과를 DB에 저장하고, 알림을 요청합니다.
 
+### 토픽 버스 모니터링
+
+토픽별 발행/처리/실패 건수, 처리 시간, 최근 메시지 이력을 API로 확인할 수 있습니다.
+
+```
+GET /api/bus/metrics
+```
+```json
+{
+  "bus": {
+    "running": true,
+    "started_at": "2026-03-10T09:00:00",
+    "queue_depth": 0,
+    "subscriber_count": 3
+  },
+  "totals": {
+    "published": 42,
+    "delivered": 40,
+    "failed": 2,
+    "pending": 0
+  },
+  "topics": {
+    "anomaly.detected": {
+      "published": 15,
+      "delivered": 14,
+      "failed": 1,
+      "pending": 0,
+      "avg_processing_ms": 3200.5,
+      "min_processing_ms": 1500.2,
+      "max_processing_ms": 8100.0
+    },
+    "rca.completed": {
+      "published": 14,
+      "delivered": 14,
+      "failed": 0,
+      "pending": 0,
+      "avg_processing_ms": 12.3
+    },
+    "alert.request": {
+      "published": 13,
+      "delivered": 12,
+      "failed": 1,
+      "pending": 0,
+      "avg_processing_ms": 85.7
+    }
+  },
+  "subscribers": {
+    "anomaly.detected": ["rca_agent.handle_anomaly"],
+    "alert.request": ["alert.router.handle_alert_request"]
+  }
+}
+```
+
+```
+GET /api/bus/messages?limit=20
+```
+```json
+{
+  "messages": [
+    {
+      "topic": "anomaly.detected",
+      "source": "detection_agent",
+      "timestamp": "2026-03-10T14:35:12",
+      "status": "delivered",
+      "processing_ms": 3150.2,
+      "anomaly_id": 42,
+      "severity": "critical",
+      "title": "LINE03 컨베이어 부하율 95% 초과"
+    },
+    {
+      "topic": "rca.completed",
+      "source": "rca_agent",
+      "timestamp": "2026-03-10T14:35:15",
+      "status": "delivered",
+      "processing_ms": 8.1,
+      "anomaly_id": 42,
+      "severity": "critical",
+      "title": "LINE03 컨베이어 부하율 95% 초과"
+    }
+  ]
+}
+```
+
 ### 메시지 큐 교체
 
 현재는 `asyncio.Queue` 기반 인프로세스 버스이지만, `bus/topic.py`의 내부 구현만 교체하면 외부 MQ로 전환 가능합니다:
@@ -345,6 +428,8 @@ DDL: `db/schema.sql`
 | 시스템 | `POST /api/correlations/analyze` | 수동 상관분석 |
 | 시스템 | `POST /api/escalations/check` | 수동 에스컬레이션 |
 | 시스템 | `GET /api/stats` | 통계 |
+| 버스 | `GET /api/bus/metrics` | 토픽별 발행/처리/실패 메트릭 |
+| 버스 | `GET /api/bus/messages` | 최근 처리 메시지 목록 |
 | 실시간 | `WS /ws/anomalies` | WebSocket 실시간 알림 |
 
 ---

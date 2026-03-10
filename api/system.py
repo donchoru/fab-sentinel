@@ -1,9 +1,10 @@
-"""시스템 API — 헬스체크, 수동 트리거, 통계."""
+"""시스템 API — 헬스체크, 수동 트리거, 통계, 토픽 버스 모니터링."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
+from bus.topic import bus
 from detection.scheduler import run_detection_cycle
 from correlation.engine import analyze_correlations
 from alert.escalation import check_escalations
@@ -66,3 +67,20 @@ async def stats():
         "anomalies_24h": anomalies_24h[0]["cnt"] if anomalies_24h else 0,
         "cycles_24h": cycles_24h[0] if cycles_24h else {},
     }
+
+
+# ── 토픽 버스 모니터링 ──
+
+@router.get("/api/bus/metrics")
+async def bus_metrics():
+    """토픽 버스 메트릭.
+
+    토픽별 발행/처리/실패 건수, 평균 처리시간, 큐 깊이 등.
+    """
+    return bus.get_metrics()
+
+
+@router.get("/api/bus/messages")
+async def bus_messages(limit: int = 50):
+    """최근 처리된 메시지 목록 (최대 100건)."""
+    return {"messages": bus.get_recent_messages(limit=limit)}
