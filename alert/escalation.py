@@ -1,11 +1,11 @@
-"""에스컬레이션 — 미확인 이상 상위 채널 재알림."""
+"""에스컬레이션 — 미확인 이상 재알림 (DB 기록)."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from bus.topic import bus, TOPIC_ALERT_REQUEST
+from alert.router import send_alert
 from db import queries
 from db.oracle import execute
 
@@ -20,7 +20,6 @@ async def check_escalations() -> int:
 
     Returns: escalated count
     """
-    # 에스컬레이션 대상 라우팅 규칙
     routes = await queries.get_alert_routes(enabled_only=True)
     esc_routes = [r for r in routes if r.get("escalation_delay_min", 0) > 0]
     if not esc_routes:
@@ -31,7 +30,6 @@ async def check_escalations() -> int:
         delay_min = route["escalation_delay_min"]
         category = route.get("category")
 
-        # 미확인 이상 중 delay 시간 초과한 것
         cat_where = "AND a.category = :cat" if category else ""
         params: dict[str, Any] = {"delay": delay_min}
         if category:
@@ -39,6 +37,8 @@ async def check_escalations() -> int:
 
         unacked = await execute(
             f"""SELECT a.anomaly_id, a.severity, a.title, a.category,
+                       a.affected_entity, a.detected_at, a.measured_value,
+                       a.threshold_value, a.description,
                        a.llm_analysis, a.llm_suggestion
                 FROM sentinel_anomalies a
                 WHERE a.status = 'detected'
@@ -53,18 +53,10 @@ async def check_escalations() -> int:
         )
 
         for anomaly in unacked:
-            await bus.publish(
-                topic=TOPIC_ALERT_REQUEST,
-                payload={
-                    "anomaly_id": anomaly["anomaly_id"],
-                    "severity": anomaly.get("severity", "warning"),
-                    "category": anomaly.get("category", ""),
-                    "title": f"[ESCALATED] {anomaly.get('title', '')}",
-                    "analysis": anomaly.get("llm_analysis", ""),
-                    "suggested_actions": [],
-                },
-                source="escalation",
-            )
+            # [ESCALATED] 접두사 붙여서 재알림
+            escalated = dict(anomaly)
+            escalated["title"] = f"[ESCALATED] {anomaly.get('title', '')}"
+            await send_alert(escalated)
             count += 1
 
     if count:

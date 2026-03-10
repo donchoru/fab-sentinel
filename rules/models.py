@@ -11,7 +11,7 @@ class RuleCreate(BaseModel):
     subcategory: str | None = None
     query_template: str = Field(..., description="SQL with :bind_var")
     check_type: str = Field("threshold", pattern="^(threshold|delta|absence|llm)$")
-    threshold_op: str = Field(">", pattern="^(>|<|>=|<=)$")
+    threshold_op: str = Field(">", pattern="^(>|<|>=|<=|=|!=)$")
     warning_value: float | None = None
     critical_value: float | None = None
     eval_interval: int = Field(300, ge=60)

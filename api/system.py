@@ -1,17 +1,14 @@
-"""시스템 API — 헬스체크, 수동 트리거, 통계, 토픽 버스 모니터링."""
+"""시스템 API — 헬스체크, 수동 트리거, 통계."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
-from bus.topic import bus
 from config import settings
 from detection.scheduler import run_detection_cycle
 from correlation.engine import analyze_correlations
 from alert.escalation import check_escalations
 from db.oracle import execute
-from rag.loader import load_knowledge
-from rag.store import init_store
 
 router = APIRouter(tags=["system"])
 
@@ -72,23 +69,6 @@ async def stats():
     }
 
 
-# ── 토픽 버스 모니터링 ──
-
-@router.get("/api/bus/metrics")
-async def bus_metrics():
-    """토픽 버스 메트릭.
-
-    토픽별 발행/처리/실패 건수, 평균 처리시간, 큐 깊이 등.
-    """
-    return bus.get_metrics()
-
-
-@router.get("/api/bus/messages")
-async def bus_messages(limit: int = 50):
-    """최근 처리된 메시지 목록 (최대 100건)."""
-    return {"messages": bus.get_recent_messages(limit=limit)}
-
-
 # ── RAG 지식베이스 관리 ──
 
 @router.get("/api/rag/status")
@@ -106,15 +86,13 @@ async def rag_status():
 
 @router.post("/api/rag/reload")
 async def rag_reload(rebuild: bool = False):
-    """RAG 지식베이스 리로드.
-
-    rebuild=true: 기존 컬렉션 삭제 후 재구축
-    rebuild=false: 기존 데이터에 추가 (중복 가능)
-    """
+    """RAG 지식베이스 리로드."""
     if not settings.rag.enabled:
         return {"error": "RAG is disabled"}
 
     try:
+        from rag.store import init_store
+        from rag.loader import load_knowledge
         init_store(uri=settings.rag.milvus_uri, dim=settings.rag.embedding_dim)
         count = await load_knowledge(
             milvus_uri=settings.rag.milvus_uri,

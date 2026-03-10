@@ -25,7 +25,6 @@ def init_sqlite(db_path: str = "simulator.db") -> None:
     _db_path = db_path
     _conn = sqlite3.connect(db_path, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
-    _conn.execute("PRAGMA journal_mode=WAL")
     _conn.execute("PRAGMA foreign_keys=ON")
 
     # db.oracle 함수들을 SQLite 버전으로 교체

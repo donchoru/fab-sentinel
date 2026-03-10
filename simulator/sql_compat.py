@@ -51,15 +51,19 @@ def oracle_to_sqlite(sql: str) -> str:
 
     # ROUND stays the same
 
-    # FETCH NEXT :lim ROWS ONLY → LIMIT :lim
-    s = re.sub(r"FETCH\s+NEXT\s+:(\w+)\s+ROWS\s+ONLY", r"LIMIT :\1", s)
-
     # OFFSET :off ROWS FETCH NEXT :lim ROWS ONLY → LIMIT :lim OFFSET :off
+    # (반드시 FETCH-only 패턴보다 먼저 실행해야 함)
     s = re.sub(
         r"OFFSET\s+:(\w+)\s+ROWS\s+FETCH\s+NEXT\s+:(\w+)\s+ROWS\s+ONLY",
         r"LIMIT :\2 OFFSET :\1",
         s,
     )
+
+    # FETCH NEXT :lim ROWS ONLY → LIMIT :lim (바인드 변수)
+    s = re.sub(r"FETCH\s+NEXT\s+:(\w+)\s+ROWS\s+ONLY", r"LIMIT :\1", s)
+
+    # FETCH NEXT <number> ROWS ONLY → LIMIT <number> (리터럴)
+    s = re.sub(r"FETCH\s+NEXT\s+(\d+)\s+ROWS\s+ONLY", r"LIMIT \1", s)
 
     # (SYSDATE - col) * 24 → (julianday('now', 'localtime') - julianday(col)) * 24
     s = re.sub(

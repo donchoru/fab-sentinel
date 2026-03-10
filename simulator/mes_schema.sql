@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS sentinel_anomalies (
     affected_entity TEXT,
     llm_analysis TEXT,
     llm_suggestion TEXT,
+    rca_status TEXT DEFAULT 'pending',
     status TEXT DEFAULT 'detected',
     detected_at TEXT DEFAULT (datetime('now', 'localtime')),
     acknowledged_at TEXT,
@@ -199,6 +200,7 @@ CREATE TABLE IF NOT EXISTS sentinel_alert_history (
     anomaly_id INTEGER REFERENCES sentinel_anomalies(anomaly_id),
     channel TEXT NOT NULL,
     recipient TEXT,
+    message TEXT,
     sent_at TEXT DEFAULT (datetime('now', 'localtime')),
     delivered INTEGER DEFAULT 0,
     error_msg TEXT

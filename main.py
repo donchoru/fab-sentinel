@@ -6,16 +6,11 @@ import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 
 from config import settings
 from db.oracle import init_pool, close_pool
-from bus.topic import bus
-from agent.rca_agent import register as register_rca
-from alert.router import register as register_alert_router
-from rag.loader import load_knowledge
-from rag.store import init_store
-from alert.dashboard import register_ws, unregister_ws
+from agent.rca_agent import poll_and_analyze
 from detection.scheduler import run_detection_cycle
 from correlation.engine import analyze_correlations
 from alert.escalation import check_escalations
@@ -40,9 +35,11 @@ async def lifespan(app: FastAPI):
     logger.info("FAB-SENTINEL starting up...")
     await init_pool()
 
-    # RAG 지식베이스 초기화
+    # RAG 지식베이스 초기화 (lazy import)
     if settings.rag.enabled:
         try:
+            from rag.store import init_store
+            from rag.loader import load_knowledge
             init_store(uri=settings.rag.milvus_uri, dim=settings.rag.embedding_dim)
             count = await load_knowledge(
                 milvus_uri=settings.rag.milvus_uri,
@@ -53,13 +50,6 @@ async def lifespan(app: FastAPI):
             logger.exception("RAG initialization failed, continuing without RAG")
             settings.rag.enabled = False
 
-    # 토픽 버스 시작
-    await bus.start()
-
-    # RCA 에이전트 + 알림 라우터를 토픽 구독에 등록
-    register_rca()
-    register_alert_router()
-
     # 스케줄러 설정
     interval = settings.scheduler.detection_interval_sec
     scheduler.add_job(
@@ -68,6 +58,13 @@ async def lifespan(app: FastAPI):
         seconds=interval,
         id="detection_cycle",
         name="Detection Cycle",
+    )
+    scheduler.add_job(
+        poll_and_analyze,
+        "interval",
+        seconds=30,
+        id="rca_poll",
+        name="RCA Poller",
     )
     scheduler.add_job(
         analyze_correlations,
@@ -84,13 +81,12 @@ async def lifespan(app: FastAPI):
         name="Escalation Check",
     )
     scheduler.start()
-    logger.info("Scheduler started (detection every %ds)", interval)
+    logger.info("Scheduler started (detection every %ds, RCA poll every 30s)", interval)
 
     yield
 
     # Shutdown
     scheduler.shutdown(wait=False)
-    await bus.stop()
     await close_pool()
     logger.info("FAB-SENTINEL shut down")
 
@@ -98,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FAB-SENTINEL",
     description="반도체 공정 AI 이상감지 시스템",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -119,19 +115,6 @@ app.include_router(correlations_router)
 app.include_router(alerts_router)
 app.include_router(dashboard_router)
 app.include_router(system_router)
-
-
-@app.websocket("/ws/anomalies")
-async def ws_anomalies(ws: WebSocket):
-    await ws.accept()
-    register_ws(ws)
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        unregister_ws(ws)
 
 
 if __name__ == "__main__":

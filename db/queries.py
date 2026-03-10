@@ -92,6 +92,25 @@ async def update_anomaly_rca(anomaly_id: int, analysis: str, suggestion: str) ->
     )
 
 
+async def get_pending_rca(limit: int = 5) -> list[dict[str, Any]]:
+    """rca_status='pending'인 이상 조회."""
+    return await execute(
+        """SELECT * FROM sentinel_anomalies
+           WHERE rca_status = 'pending'
+           ORDER BY detected_at ASC
+           FETCH NEXT :lim ROWS ONLY""",
+        {"lim": limit},
+    )
+
+
+async def update_rca_status(anomaly_id: int, status: str) -> int:
+    """rca_status 갱신 (pending→processing→done/failed)."""
+    return await execute_dml(
+        "UPDATE sentinel_anomalies SET rca_status = :status WHERE anomaly_id = :id",
+        {"id": anomaly_id, "status": status},
+    )
+
+
 async def add_anomaly_note(anomaly_id: int, note: str) -> int:
     return await execute_dml(
         "UPDATE sentinel_anomalies SET notes = notes || CHR(10) || :note WHERE anomaly_id = :id",

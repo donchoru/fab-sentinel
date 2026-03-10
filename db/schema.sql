@@ -34,6 +34,8 @@ CREATE TABLE sentinel_anomalies (
     affected_entity VARCHAR2(200), -- equipment_id, zone, line
     llm_analysis    CLOB,
     llm_suggestion  CLOB,
+    rca_status      VARCHAR2(20)   DEFAULT 'pending',
+                    -- pending / processing / done / failed
     status          VARCHAR2(30)   DEFAULT 'detected',
                     -- detected / acknowledged / investigating / resolved / false_positive
     detected_at     TIMESTAMP      DEFAULT SYSTIMESTAMP,
@@ -44,6 +46,7 @@ CREATE TABLE sentinel_anomalies (
 );
 
 CREATE INDEX idx_anomalies_status ON sentinel_anomalies(status);
+CREATE INDEX idx_anomalies_rca_status ON sentinel_anomalies(rca_status);
 CREATE INDEX idx_anomalies_detected ON sentinel_anomalies(detected_at);
 CREATE INDEX idx_anomalies_rule ON sentinel_anomalies(rule_id);
 CREATE INDEX idx_anomalies_correlation ON sentinel_anomalies(correlation_id);
@@ -67,8 +70,9 @@ ALTER TABLE sentinel_anomalies
 CREATE TABLE sentinel_alert_history (
     alert_id    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     anomaly_id  NUMBER         REFERENCES sentinel_anomalies(anomaly_id),
-    channel     VARCHAR2(50)   NOT NULL,  -- dashboard / email / messenger
+    channel     VARCHAR2(50)   NOT NULL,  -- dashboard
     recipient   VARCHAR2(200),
+    message     CLOB,
     sent_at     TIMESTAMP      DEFAULT SYSTIMESTAMP,
     delivered   NUMBER(1)      DEFAULT 0,
     error_msg   VARCHAR2(500)

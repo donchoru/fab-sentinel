@@ -6,8 +6,8 @@
 2. MES 더미 테이블 생성 + 정상 데이터 시딩
 3. 감지 규칙 등록
 4. 시나리오 시작 (시간차로 이상 주입)
-5. FastAPI 서버 + 감지 스케줄러 + 토픽 버스 시작
-6. 대시보드에서 실시간 확인 가능
+5. FastAPI 서버 + 감지 스케줄러 + RCA 폴러 시작
+6. Streamlit 대시보드에서 확인 가능
 """
 
 from __future__ import annotations
@@ -45,7 +45,13 @@ def main():
     # 2. MES 테이블 생성
     schema_path = os.path.join(os.path.dirname(__file__), "mes_schema.sql")
     with open(schema_path) as f:
-        get_conn().executescript(f.read())
+        sql = f.read()
+    conn = get_conn()
+    for stmt in sql.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            conn.execute(stmt)
+    conn.commit()
     logger.info("MES + Sentinel tables created")
 
     # 3. 정상 데이터 시딩
@@ -61,13 +67,10 @@ def main():
     import asyncio
     from contextlib import asynccontextmanager
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from bus.topic import bus
-    from agent.rca_agent import register as register_rca
-    from alert.router import register as register_alert_router
-    from alert.dashboard import register_ws, unregister_ws
+    from agent.rca_agent import poll_and_analyze
     from detection.scheduler import run_detection_cycle
     from correlation.engine import analyze_correlations
     from alert.escalation import check_escalations
@@ -98,11 +101,8 @@ def main():
                 logger.warning("RAG init failed (Milvus not available?), continuing without RAG")
                 settings.rag.enabled = False
 
-        await bus.start()
-        register_rca()
-        register_alert_router()
-
         scheduler.add_job(run_detection_cycle, "interval", seconds=args.interval, id="detection")
+        scheduler.add_job(poll_and_analyze, "interval", seconds=30, id="rca_poll")
         scheduler.add_job(analyze_correlations, "interval", seconds=args.interval, id="correlation")
         scheduler.add_job(check_escalations, "interval", seconds=60, id="escalation")
         scheduler.start()
@@ -112,8 +112,9 @@ def main():
         logger.info("=" * 60)
         logger.info("FAB-SENTINEL Simulator running")
         logger.info("  API: http://localhost:%d", args.port)
-        logger.info("  Dashboard: http://localhost:3009 (npm run dev)")
+        logger.info("  Streamlit: streamlit run streamlit_app/app.py (포트 3009)")
         logger.info("  Detection interval: %d초", args.interval)
+        logger.info("  RCA poll: 30초")
         logger.info("  Scenario speed: %.1fx", args.speed)
         logger.info("  Scenarios: 1분 컨베이어, 2분 설비, 3분 WIP, 4분 에이징, 5분 AGV")
         logger.info("=" * 60)
@@ -122,7 +123,6 @@ def main():
 
         await scenario_runner.stop()
         scheduler.shutdown(wait=False)
-        await bus.stop()
 
     app = FastAPI(title="FAB-SENTINEL (Simulator)", lifespan=lifespan)
     app.add_middleware(
@@ -145,18 +145,6 @@ def main():
     app.include_router(alerts_router)
     app.include_router(dashboard_router)
     app.include_router(system_router)
-
-    @app.websocket("/ws/anomalies")
-    async def ws_anomalies(ws: WebSocket):
-        await ws.accept()
-        register_ws(ws)
-        try:
-            while True:
-                await ws.receive_text()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            unregister_ws(ws)
 
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=args.port)
