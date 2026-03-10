@@ -1,4 +1,4 @@
-"""규칙 CRUD + 테스트 + 자연어 생성 API."""
+"""규칙 CRUD + 테스트 + 도구 카탈로그 API."""
 
 from __future__ import annotations
 
@@ -69,197 +69,232 @@ async def delete_rule(rule_id: int):
 
 @router.post("/{rule_id}/test")
 async def test_rule(rule_id: int):
-    """규칙 SQL만 실행해서 결과 확인 (이상 생성 안 함)."""
+    """규칙 데이터 소스(SQL 또는 도구) 실행해서 결과 확인."""
     rule = await queries.get_rule(rule_id)
     if not rule:
         raise HTTPException(404, "Rule not found")
 
-    sql = rule.get("query_template", "")
-    if not sql:
-        raise HTTPException(400, "Rule has no query_template")
+    source_type = rule.get("source_type", "sql")
 
     try:
-        rows = await execute(sql)
-        return {
-            "rule_id": rule_id,
-            "rule_name": rule["rule_name"],
-            "row_count": len(rows),
-            "rows": rows[:50],
-        }
+        if source_type == "tool":
+            from agent.tool_registry import registry
+            tool_name = rule.get("tool_name", "")
+            args_str = rule.get("tool_args") or "{}"
+            args = json.loads(args_str) if isinstance(args_str, str) else (args_str or {})
+            result_str = await registry.dispatch(tool_name, args)
+            result = json.loads(result_str)
+            rows = []
+            for v in result.values():
+                if isinstance(v, list):
+                    rows = v
+                    break
+            return {
+                "rule_id": rule_id,
+                "rule_name": rule["rule_name"],
+                "source": f"tool:{tool_name}",
+                "row_count": len(rows),
+                "rows": rows[:50],
+            }
+        else:
+            sql = rule.get("query_template", "")
+            if not sql:
+                raise HTTPException(400, "Rule has no query_template")
+            rows = await execute(sql)
+            return {
+                "rule_id": rule_id,
+                "rule_name": rule["rule_name"],
+                "source": "sql",
+                "row_count": len(rows),
+                "rows": rows[:50],
+            }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(400, f"Query error: {e}")
+        raise HTTPException(400, f"실행 오류: {e}")
 
 
-# ── 테이블 스키마 조회 ──
+# ── 도구 카탈로그 ──
 
-MES_TABLES = {
-    "mes_conveyor_status": {
-        "label": "컨베이어 상태",
-        "columns": ["zone_id", "line_id", "carrier_count", "capacity", "updated_at"],
+TOOL_CATALOG = {
+    "get_conveyor_load": {
+        "label": "컨베이어 부하율",
+        "category": "logistics",
+        "description": "존별 컨베이어 부하율(%) 조회",
+        "params": [
+            {"name": "zone", "label": "존 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "load_pct", "label": "부하율 (%)"},
+            {"name": "carrier_count", "label": "캐리어 수"},
+            {"name": "capacity", "label": "용량"},
+        ],
     },
-    "mes_transfer_log": {
-        "label": "반송 로그",
-        "columns": ["transfer_id", "carrier_id", "from_zone", "to_zone", "line_id", "transfer_time", "transfer_time_sec", "status"],
+    "get_transfer_throughput": {
+        "label": "반송 처리량",
+        "category": "logistics",
+        "description": "라인별 최근 1시간 반송 처리량 및 평균 처리시간",
+        "params": [
+            {"name": "line_id", "label": "라인 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "moves_1h", "label": "반송 건수 (/시간)"},
+            {"name": "avg_time_sec", "label": "평균 처리시간 (초)"},
+        ],
     },
-    "mes_carrier_queue": {
-        "label": "캐리어 대기 큐",
-        "columns": ["queue_id", "zone_id", "line_id", "carrier_id", "wait_time_sec"],
+    "get_bottleneck_zones": {
+        "label": "물류 병목 존",
+        "category": "logistics",
+        "description": "대기 시간 임계치 초과 병목 존 감지",
+        "params": [
+            {"name": "wait_threshold_sec", "label": "대기 임계치 (초)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "avg_wait", "label": "평균 대기시간 (초)"},
+            {"name": "max_wait", "label": "최대 대기시간 (초)"},
+            {"name": "carrier_count", "label": "대기 캐리어 수"},
+        ],
     },
-    "mes_vehicle_status": {
-        "label": "반송 설비(AGV/OHT)",
-        "columns": ["vehicle_id", "vehicle_type", "status"],
+    "get_agv_utilization": {
+        "label": "AGV/OHT 가동률",
+        "category": "logistics",
+        "description": "반송 설비 상태별 대수 및 비율",
+        "params": [
+            {"name": "vehicle_type", "label": "설비 유형 (AGV/OHT)", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "pct", "label": "비율 (%)"},
+            {"name": "count", "label": "대수"},
+        ],
     },
-    "mes_wip_summary": {
-        "label": "WIP 요약",
-        "columns": ["process", "step_id", "step_name", "current_wip", "target_wip"],
+    "get_wip_levels": {
+        "label": "WIP 수준",
+        "category": "wip",
+        "description": "공정별 현재 WIP 목표 대비 비율",
+        "params": [
+            {"name": "process", "label": "공정 (TFT/CELL/MODULE)", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "wip_ratio_pct", "label": "WIP 비율 (%)"},
+            {"name": "current_wip", "label": "현재 WIP"},
+            {"name": "target_wip", "label": "목표 WIP"},
+        ],
     },
-    "mes_wip_flow": {
-        "label": "WIP 흐름",
-        "columns": ["flow_id", "process", "step_id", "direction", "qty", "flow_time"],
+    "get_flow_balance": {
+        "label": "WIP 흐름 밸런스",
+        "category": "wip",
+        "description": "공정별 유입/유출 밸런스",
+        "params": [
+            {"name": "hours", "label": "분석 기간 (시간)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "net_wip", "label": "순 증가량"},
+            {"name": "inflow", "label": "유입량"},
+            {"name": "outflow", "label": "유출량"},
+        ],
     },
-    "mes_queue_status": {
-        "label": "큐 상태",
-        "columns": ["step_id", "step_name", "queue_count", "avg_wait_min", "max_wait_min"],
+    "get_queue_length": {
+        "label": "큐 대기 길이",
+        "category": "wip",
+        "description": "스텝별 대기 LOT 수 및 대기시간",
+        "params": [
+            {"name": "step_id", "label": "스텝 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "queue_count", "label": "대기 LOT 수"},
+            {"name": "avg_wait_min", "label": "평균 대기시간 (분)"},
+            {"name": "max_wait_min", "label": "최대 대기시간 (분)"},
+        ],
     },
-    "mes_lot_status": {
-        "label": "LOT 상태",
-        "columns": ["lot_id", "product_id", "current_step", "step_name", "step_in_time", "hold_flag", "hold_reason"],
+    "get_aging_lots": {
+        "label": "에이징 LOT",
+        "category": "wip",
+        "description": "기준시간 초과 장기 체류 LOT 조회",
+        "params": [
+            {"name": "hours_threshold", "label": "에이징 기준 (시간)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "hours_in_step", "label": "체류시간 (시간)"},
+            {"name": "_count", "label": "에이징 LOT 수"},
+        ],
     },
-    "mes_wip_snapshot": {
-        "label": "WIP 스냅샷",
-        "columns": ["snapshot_id", "snapshot_time", "process", "wip_count"],
+    "get_wip_trend": {
+        "label": "WIP 추이",
+        "category": "wip",
+        "description": "시간별 WIP 변화 트렌드",
+        "params": [
+            {"name": "process", "label": "공정 (TFT/CELL/MODULE)", "type": "string", "required": True},
+            {"name": "hours", "label": "조회 기간 (시간)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "total_wip", "label": "총 WIP"},
+        ],
     },
-    "mes_equipment_status": {
-        "label": "설비 현재 상태",
-        "columns": ["equipment_id", "equipment_name", "line_id", "process", "status", "last_status_change", "current_recipe"],
+    "get_equipment_status": {
+        "label": "설비 상태",
+        "category": "equipment",
+        "description": "설비 현재 상태 (RUN/IDLE/DOWN/PM)",
+        "params": [
+            {"name": "equipment_id", "label": "설비 ID", "type": "string", "required": False},
+            {"name": "line_id", "label": "라인 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "_count", "label": "설비 수"},
+        ],
     },
-    "mes_equipment_history": {
-        "label": "설비 이력",
-        "columns": ["history_id", "equipment_id", "equipment_name", "line_id", "status", "duration_min", "event_time"],
+    "get_equipment_utilization": {
+        "label": "설비 가동률",
+        "category": "equipment",
+        "description": "설비 가동률(%) — RUN 시간 비율",
+        "params": [
+            {"name": "line_id", "label": "라인 ID", "type": "string", "required": False},
+            {"name": "hours", "label": "분석 기간 (시간)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "utilization_pct", "label": "가동률 (%)"},
+            {"name": "down_minutes", "label": "다운 시간 (분)"},
+        ],
     },
-    "mes_down_history": {
-        "label": "비계획정지 이력",
-        "columns": ["down_id", "equipment_id", "equipment_name", "line_id", "down_type", "down_code", "down_reason", "start_time", "end_time"],
+    "get_unscheduled_downs": {
+        "label": "비계획정지",
+        "category": "equipment",
+        "description": "비계획정지(Unscheduled Down) 이력",
+        "params": [
+            {"name": "hours", "label": "조회 기간 (시간)", "type": "integer", "required": False},
+            {"name": "line_id", "label": "라인 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "down_min", "label": "정지시간 (분)"},
+            {"name": "_count", "label": "정지 건수"},
+        ],
     },
-    "mes_pm_schedule": {
+    "get_pm_schedule": {
         "label": "PM 일정",
-        "columns": ["pm_id", "equipment_id", "equipment_name", "line_id", "pm_type", "scheduled_date", "status"],
+        "category": "equipment",
+        "description": "예방보전(PM) 일정 및 지연 현황",
+        "params": [
+            {"name": "line_id", "label": "라인 ID", "type": "string", "required": False},
+        ],
+        "columns": [
+            {"name": "_count", "label": "PM 건수"},
+        ],
     },
-    "mes_equipment_alarms": {
+    "get_equipment_alarms": {
         "label": "설비 알람",
-        "columns": ["alarm_id", "equipment_id", "alarm_code", "alarm_name", "severity", "alarm_time", "clear_time", "acknowledged"],
+        "category": "equipment",
+        "description": "설비 알람 이력",
+        "params": [
+            {"name": "equipment_id", "label": "설비 ID", "type": "string", "required": False},
+            {"name": "hours", "label": "조회 기간 (시간)", "type": "integer", "required": False},
+        ],
+        "columns": [
+            {"name": "_count", "label": "알람 건수"},
+        ],
     },
 }
 
 
-@router.get("/schema/tables")
-async def list_tables():
-    """MES 테이블 스키마 목록."""
-    return MES_TABLES
-
-
-# ── 자연어 규칙 생성 ──
-
-RULE_GEN_SYSTEM = """너는 반도체 FAB 공정 이상감지 시스템의 규칙 생성기야.
-사용자가 자연어로 이상 조건을 설명하면, 감지 규칙을 JSON으로 생성해.
-
-사용 가능한 MES 테이블:
-- mes_conveyor_status: zone_id, line_id, carrier_count, capacity
-- mes_transfer_log: carrier_id, from_zone, to_zone, line_id, transfer_time_sec, status
-- mes_carrier_queue: zone_id, line_id, carrier_id, wait_time_sec
-- mes_vehicle_status: vehicle_id, vehicle_type, status (RUN/IDLE/ERROR/CHARGING)
-- mes_wip_summary: process, step_id, step_name, current_wip, target_wip
-- mes_wip_flow: process, step_id, direction (IN/OUT), qty
-- mes_queue_status: step_id, step_name, queue_count, avg_wait_min, max_wait_min
-- mes_lot_status: lot_id, product_id, current_step, step_in_time, hold_flag
-- mes_equipment_status: equipment_id, equipment_name, line_id, process, status (RUN/IDLE/DOWN/PM)
-- mes_equipment_history: equipment_id, line_id, status, duration_min, event_time
-- mes_down_history: equipment_id, down_type, down_code, down_reason, start_time, end_time
-- mes_pm_schedule: equipment_id, pm_type, scheduled_date, status
-- mes_equipment_alarms: equipment_id, alarm_code, alarm_name, severity, alarm_time
-- mes_wip_snapshot: snapshot_id, snapshot_time, process, wip_count
-
-반드시 아래 JSON 형식으로만 응답해. 추가 설명 없이 JSON만:
-{
-  "rule_name": "규칙 이름 (한글, 간결하게)",
-  "category": "logistics|wip|equipment 중 하나",
-  "subcategory": "세부 카테고리",
-  "query_template": "SELECT 쿼리 (Oracle SQL, 숫자 컬럼이 첫번째 값으로 오게)",
-  "check_type": "threshold|delta|absence|llm 중 하나",
-  "threshold_op": ">|<|>=|<= 중 하나",
-  "warning_value": 경고 임계치 (숫자),
-  "critical_value": 위험 임계치 (숫자),
-  "llm_enabled": true|false,
-  "llm_prompt": "LLM에게 판단을 맡길 경우의 프롬프트 (없으면 null)",
-  "explanation": "이 규칙이 무엇을 감지하는지 설명"
-}
-
-핵심 규칙:
-- check_type이 "llm"이면 llm_enabled=true, llm_prompt 필수
-- check_type이 "threshold"이면 query_template의 SELECT 결과 첫번째 숫자 컬럼을 threshold_op으로 비교
-- 자연어 조건이 복잡하면 check_type="llm"으로 하고, 판단을 LLM에게 맡겨
-- query_template에는 관련 데이터를 조회하는 SQL을 작성 (충분한 컨텍스트 제공)
-- eval_interval은 포함하지 마 (기본값 사용)
-
-★ 판단 패턴 가이드:
-
-1) 단순 임계값 — "재공이 100개 넘으면 이상"
-   → check_type="threshold", threshold_op=">", warning_value=80, critical_value=100
-   → query_template: SELECT current_wip FROM mes_wip_summary WHERE ...
-
-2) 상대적 비교 — "특정 공정만 유독 높으면 이상 (전체 대비)"
-   → check_type="llm" (AI가 비교 판단)
-   → query_template: 전체 공정 데이터를 한번에 조회 (공정별 WIP + 전체 평균)
-   → llm_prompt: "각 공정의 재공을 전체 평균과 비교해. 평균 대비 2배 이상인 공정이 있으면 이상. 전체적으로 높은 건 정상."
-
-3) 추세/변화 — "최근 1시간 동안 재공이 계속 증가하면 이상"
-   → check_type="llm"
-   → query_template: 시간순 데이터 조회
-   → llm_prompt: "시간 흐름에 따른 추세를 봐. 지속 증가 패턴이면 이상."
-
-4) 복합 조건 — "설비가 DOWN인데 알람도 없으면 이상"
-   → check_type="llm"
-   → query_template: 설비 상태 + 알람을 JOIN해서 조회
-   → llm_prompt: "설비가 DOWN 상태인데 최근 알람이 없으면 비정상. 알람이 있으면 정상 대응 중."
-
-5) 비율 기반 — "에러 상태 AGV가 전체의 30% 이상이면 이상"
-   → check_type="threshold" (비율 계산 SQL)
-   → query_template: SELECT ROUND(에러수*100.0/전체수, 1) FROM ...
-
-★ 중요: 사용자가 "~만 높으면", "다른 건 괜찮은데 이것만", "평소와 다르면" 같은
-  상대적/맥락적 표현을 쓰면 반드시 check_type="llm"으로 하고,
-  query_template에 비교 대상 데이터를 모두 포함시켜라.
-"""
-
-
-class NaturalRuleRequest(BaseModel):
-    description: str
-
-
-@router.post("/generate")
-async def generate_rule(body: NaturalRuleRequest):
-    """자연어 설명에서 감지 규칙 자동 생성."""
-    from agent.llm_client import llm_client
-
-    try:
-        response = await llm_client.simple_chat(
-            system=RULE_GEN_SYSTEM,
-            user=body.description,
-        )
-
-        # JSON 추출 (```json ... ``` 블록이 있을 수 있음)
-        text = response.strip()
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-
-        rule = json.loads(text)
-        return rule
-
-    except json.JSONDecodeError:
-        logger.warning("LLM returned non-JSON: %s", response[:200])
-        raise HTTPException(422, f"LLM이 올바른 JSON을 반환하지 않았습니다. 다시 시도해주세요.")
-    except Exception as e:
-        logger.exception("Rule generation failed")
-        raise HTTPException(500, f"규칙 생성 실패: {e}")
+@router.get("/tools/catalog")
+async def list_tools():
+    """사용 가능한 도구 카탈로그."""
+    return TOOL_CATALOG

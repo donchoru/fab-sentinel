@@ -96,12 +96,8 @@ def test_rule(rule_id: int) -> dict:
     return _post(f"/api/rules/{rule_id}/test")
 
 
-def get_tables() -> dict:
-    return _get("/api/rules/schema/tables")
-
-
-def generate_rule(description: str) -> dict:
-    return _post("/api/rules/generate", json={"description": description})
+def get_tool_catalog() -> dict:
+    return _get("/api/rules/tools/catalog")
 
 
 # ── 수동 트리거 ──

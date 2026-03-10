@@ -3,83 +3,74 @@
 # UI에서 규칙을 추가/수정/삭제하면 이 파일도 자동 갱신됩니다.
 
 rules:
-- name: 컨베이어 부하율 과부하
-  category: logistics
-  subcategory: conveyor
-  query: |
-    SELECT zone_id, ROUND(carrier_count*100.0/NULLIF(capacity,0), 1) AS load_pct
-    FROM mes_conveyor_status
-    ORDER BY load_pct DESC
-    FETCH NEXT 1 ROWS ONLY
-  check_type: threshold
-  threshold_op: '>'
-  warning_value: 85
-  critical_value: 95
-  eval_interval: 300
-  llm_enabled: true
-  llm_prompt: 컨베이어 부하율이 높습니다. 해당 존의 반송 이력과 병목 여부를 확인하세요.
-  enabled: true
-- name: 설비 비계획정지 발생
-  category: equipment
-  subcategory: unscheduled_down
-  query: |
-    SELECT COUNT(*) AS down_count
-    FROM mes_down_history
-    WHERE down_type = 'UNSCHEDULED'
-      AND start_time >= datetime('now', 'localtime', '-1 hour')
-  check_type: threshold
-  threshold_op: '>'
-  warning_value: 0
-  critical_value: 2
-  eval_interval: 300
-  llm_enabled: true
-  llm_prompt: 비계획정지가 발생했습니다. 해당 설비의 알람 이력과 관련 WIP 영향을 확인하세요.
-  enabled: true
-- name: WIP 목표 초과
-  category: wip
-  subcategory: level
-  query: |
-    SELECT process, step_id, step_name, current_wip, target_wip,
-           ROUND(CAST(current_wip AS REAL) / NULLIF(target_wip, 0) * 100, 1) AS wip_ratio_pct
-    FROM mes_wip_summary
-    ORDER BY wip_ratio_pct DESC
-    LIMIT 1
-  check_type: threshold
-  threshold_op: '>'
-  warning_value: 130
-  critical_value: 160
-  eval_interval: 300
-  llm_enabled: true
-  llm_prompt: WIP가 목표를 크게 초과했습니다. 흐름 밸런스와 설비 상태를 확인하세요.
-  enabled: true
-- name: 에이징 LOT 발생
-  category: wip
-  subcategory: aging
-  query: |
-    SELECT COUNT(*) AS aging_count
-    FROM mes_lot_status
-    WHERE (julianday('now', 'localtime') - julianday(step_in_time)) * 24 > 24
-  check_type: threshold
-  threshold_op: '>'
-  warning_value: 3
-  critical_value: 10
-  eval_interval: 300
-  llm_enabled: false
-  enabled: true
-- name: AGV 가동률 저하
-  category: logistics
-  subcategory: vehicle
-  query: |
-    SELECT ROUND(
-      CAST(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) AS REAL)
-      / NULLIF(COUNT(*), 0) * 100, 1
-    ) AS error_pct
-    FROM mes_vehicle_status
-    WHERE vehicle_type = 'AGV'
-  check_type: threshold
-  threshold_op: '>'
-  warning_value: 15
-  critical_value: 30
-  eval_interval: 300
-  llm_enabled: false
-  enabled: true
+  - name: 컨베이어 부하율 과부하
+    category: logistics
+    subcategory: conveyor_load
+    check_type: threshold
+    source_type: tool
+    tool: get_conveyor_load
+    tool_column: load_pct
+    threshold_op: ">"
+    warning_value: 85
+    critical_value: 95
+    eval_interval: 300
+    llm_enabled: true
+    llm_prompt: "컨베이어 부하율이 높습니다. 해당 존의 반송 이력과 병목 여부를 확인하세요."
+    enabled: true
+
+  - name: 설비 비계획정지 발생
+    category: equipment
+    subcategory: unscheduled_downs
+    check_type: threshold
+    source_type: tool
+    tool: get_unscheduled_downs
+    tool_args: '{"hours": 1}'
+    tool_column: _count
+    threshold_op: ">"
+    warning_value: 0
+    critical_value: 2
+    eval_interval: 300
+    llm_enabled: true
+    llm_prompt: "비계획정지가 발생했습니다. 해당 설비의 알람 이력과 관련 WIP 영향을 확인하세요."
+    enabled: true
+
+  - name: WIP 목표 초과
+    category: wip
+    subcategory: wip_levels
+    check_type: threshold
+    source_type: tool
+    tool: get_wip_levels
+    tool_column: wip_ratio_pct
+    threshold_op: ">"
+    warning_value: 130
+    critical_value: 160
+    eval_interval: 300
+    llm_enabled: true
+    llm_prompt: "WIP가 목표를 크게 초과했습니다. 흐름 밸런스와 설비 상태를 확인하세요."
+    enabled: true
+
+  - name: 에이징 LOT 발생
+    category: wip
+    subcategory: aging_lots
+    check_type: threshold
+    source_type: tool
+    tool: get_aging_lots
+    tool_column: _count
+    threshold_op: ">"
+    warning_value: 3
+    critical_value: 10
+    eval_interval: 300
+    llm_enabled: false
+    enabled: true
+
+  - name: AGV 가동률 저하
+    category: logistics
+    subcategory: agv_utilization
+    check_type: llm
+    source_type: tool
+    tool: get_agv_utilization
+    tool_args: '{"vehicle_type": "AGV"}'
+    eval_interval: 300
+    llm_enabled: true
+    llm_prompt: "ERROR 상태 AGV의 비율을 확인해. 전체의 15% 이상이면 경고, 30% 이상이면 위험으로 판단해."
+    enabled: true

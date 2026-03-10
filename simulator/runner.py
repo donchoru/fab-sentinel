@@ -21,7 +21,23 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def _inject_keychain_key():
+    """macOS Keychain에서 GEMINI_API_KEY를 환경변수로 주입."""
+    if os.getenv("LLM_API_KEY"):
+        return
+    try:
+        import subprocess
+        key = subprocess.check_output(
+            ["security", "find-generic-password", "-s", "GEMINI_API_KEY", "-w"],
+            text=True,
+        ).strip()
+        os.environ["LLM_API_KEY"] = key
+    except Exception:
+        pass
+
+
 def main():
+    _inject_keychain_key()
     parser = argparse.ArgumentParser(description="FAB 이상감지 시뮬레이터")
     parser.add_argument("--speed", type=float, default=2.0, help="시나리오 속도 배율 (기본 2x)")
     parser.add_argument("--port", type=int, default=8600, help="API 포트 (기본 8600)")

@@ -6,9 +6,13 @@ CREATE TABLE detection_rules (
     rule_name      VARCHAR2(200)  NOT NULL,
     category       VARCHAR2(50)   NOT NULL,   -- logistics / wip / equipment
     subcategory    VARCHAR2(100),
-    query_template CLOB           NOT NULL,   -- SQL with :bind_var
+    query_template CLOB,                       -- SQL with :bind_var (source_type=sql)
     check_type     VARCHAR2(30)   DEFAULT 'threshold' NOT NULL,
                    -- threshold / delta / absence / llm
+    source_type    VARCHAR2(10)   DEFAULT 'sql',  -- sql / tool
+    tool_name      VARCHAR2(100),               -- 도구명 (source_type=tool)
+    tool_args      CLOB,                        -- 도구 파라미터 JSON
+    tool_column    VARCHAR2(100),               -- 결과에서 추출할 컬럼명
     threshold_op   VARCHAR2(10)   DEFAULT '>',
     warning_value  NUMBER,
     critical_value NUMBER,

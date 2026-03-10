@@ -9,12 +9,16 @@ class RuleCreate(BaseModel):
     rule_name: str = Field(..., max_length=200)
     category: str = Field(..., pattern="^(logistics|wip|equipment)$")
     subcategory: str | None = None
-    query_template: str = Field(..., description="SQL with :bind_var")
+    query_template: str | None = None
     check_type: str = Field("threshold", pattern="^(threshold|delta|absence|llm)$")
+    source_type: str = Field("sql", pattern="^(sql|tool)$")
+    tool_name: str | None = None
+    tool_args: str | None = None
+    tool_column: str | None = None
     threshold_op: str = Field(">", pattern="^(>|<|>=|<=|=|!=)$")
     warning_value: float | None = None
     critical_value: float | None = None
-    eval_interval: int = Field(300, ge=60)
+    eval_interval: int = Field(300, ge=10)
     llm_enabled: bool = False
     llm_prompt: str | None = None
     enabled: bool = True
@@ -26,6 +30,10 @@ class RuleUpdate(BaseModel):
     subcategory: str | None = None
     query_template: str | None = None
     check_type: str | None = None
+    source_type: str | None = None
+    tool_name: str | None = None
+    tool_args: str | None = None
+    tool_column: str | None = None
     threshold_op: str | None = None
     warning_value: float | None = None
     critical_value: float | None = None
@@ -41,6 +49,9 @@ class RuleResponse(BaseModel):
     category: str
     subcategory: str | None = None
     check_type: str
+    source_type: str = "sql"
+    tool_name: str | None = None
+    tool_column: str | None = None
     threshold_op: str | None = None
     warning_value: float | None = None
     critical_value: float | None = None

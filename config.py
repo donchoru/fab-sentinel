@@ -20,9 +20,9 @@ class OracleConfig:
 
 @dataclass
 class LLMConfig:
-    base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://localhost:11434/v1"))
-    api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", "not-needed"))
-    model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "qwen2.5:14b"))
+    base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"))
+    api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
+    model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "gemini-2.0-flash"))
     timeout: float = 60.0
     max_tokens: int = 2048
     temperature: float = 0.1

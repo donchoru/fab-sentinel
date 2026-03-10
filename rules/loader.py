@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 RULES_YAML = Path(__file__).resolve().parent.parent / "rules.yaml"
 
 # YAML ↔ DB 필드 매핑
-_YAML_TO_DB = {"name": "rule_name", "query": "query_template"}
+_YAML_TO_DB = {"name": "rule_name", "query": "query_template", "tool": "tool_name"}
 _DB_TO_YAML = {v: k for k, v in _YAML_TO_DB.items()}
 
 
@@ -47,9 +47,19 @@ def _db_to_yaml(rule: dict) -> dict:
         if isinstance(v, float) and v == int(v):
             v = int(v)
         out[key] = v
-    # llm_prompt가 비어있고 llm_enabled=False면 제거
+    # 불필요한 필드 정리
     if not out.get("llm_enabled") and not out.get("llm_prompt"):
         out.pop("llm_prompt", None)
+    # sql 소스면 tool 필드 제거, tool 소스면 query 필드 제거
+    if out.get("source_type") == "tool":
+        out.pop("query", None)
+    else:
+        out.pop("source_type", None)
+        out.pop("tool", None)
+        out.pop("tool_args", None)
+        out.pop("tool_column", None)
+    # None 값 제거
+    out = {k: v for k, v in out.items() if v is not None}
     return out
 
 
@@ -119,15 +129,21 @@ def sync_to_sqlite(conn) -> int:
         db = _yaml_to_db(rule)
         conn.execute(
             """INSERT INTO detection_rules
-               (rule_name, category, subcategory, query_template, check_type, threshold_op,
-                warning_value, critical_value, eval_interval, llm_enabled, llm_prompt, enabled)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (rule_name, category, subcategory, query_template, check_type,
+                source_type, tool_name, tool_args, tool_column,
+                threshold_op, warning_value, critical_value,
+                eval_interval, llm_enabled, llm_prompt, enabled)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 db.get("rule_name"),
                 db.get("category"),
                 db.get("subcategory"),
                 db.get("query_template"),
                 db.get("check_type", "threshold"),
+                db.get("source_type", "sql"),
+                db.get("tool_name"),
+                db.get("tool_args"),
+                db.get("tool_column"),
                 db.get("threshold_op", ">"),
                 db.get("warning_value", 0),
                 db.get("critical_value", 0),
