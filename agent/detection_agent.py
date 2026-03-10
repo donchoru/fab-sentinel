@@ -1,8 +1,15 @@
-"""이상감지 에이전트 — 이상 감지 후 토픽 발행."""
+"""이상감지 에이전트 — 이상 감지 후 토픽 발행.
+
+발행하는 메시지에는 이상의 전체 맥락이 포함됨:
+누가 어떤 규칙으로 무엇을 감지했고, 측정값/임계치는 얼마이며,
+어떤 설비/라인이 영향을 받는지 — 메시지만 보면 전부 파악 가능.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from agent.agent_loop import run_agent_loop
@@ -18,12 +25,7 @@ async def analyze_and_publish(
     measured_value: float,
     query_result: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """LLM으로 이상 분석 후 토픽에 발행.
-
-    1. ReAct 루프로 이상 여부 판단
-    2. 이상이면 DB에 anomaly 레코드 생성
-    3. anomaly.detected 토픽에 발행 → RCA 에이전트가 수신
-    """
+    """LLM으로 이상 분석 후 토픽에 발행."""
     user_msg = _build_user_message(rule, measured_value, query_result)
 
     result = await run_agent_loop(
@@ -41,6 +43,8 @@ async def analyze_and_publish(
         return None
 
     severity = result.get("severity", "warning")
+    threshold_value = rule.get("critical_value") if severity == "critical" else rule.get("warning_value")
+
     anomaly_data = {
         "rule_id": rule["rule_id"],
         "category": rule["category"],
@@ -48,26 +52,30 @@ async def analyze_and_publish(
         "title": result.get("title", rule["rule_name"]),
         "description": result.get("analysis", ""),
         "measured_value": measured_value,
-        "threshold_value": rule.get("critical_value") if severity == "critical" else rule.get("warning_value"),
+        "threshold_value": threshold_value,
         "affected_entity": result.get("affected_entity", ""),
     }
 
     anomaly_id = await queries.insert_anomaly(anomaly_data)
+    detected_at = datetime.now().isoformat()
     logger.info("Anomaly created: id=%d rule=%s severity=%s", anomaly_id, rule["rule_name"], severity)
 
-    # 토픽 발행 → RCA 에이전트가 구독
+    # 자기완결형 메시지 발행
     await bus.publish(
         topic=TOPIC_ANOMALY_DETECTED,
-        payload={
-            "anomaly_id": anomaly_id,
-            "rule": rule,
-            "severity": severity,
-            "title": result.get("title", ""),
-            "analysis": result.get("analysis", ""),
-            "measured_value": measured_value,
-            "affected_entity": result.get("affected_entity", ""),
-            "query_result": query_result,
-        },
+        payload=_build_detected_message(
+            anomaly_id=anomaly_id,
+            detected_at=detected_at,
+            rule=rule,
+            severity=severity,
+            title=result.get("title", rule["rule_name"]),
+            analysis=result.get("analysis", ""),
+            measured_value=measured_value,
+            threshold_value=threshold_value,
+            affected_entity=result.get("affected_entity", ""),
+            confidence=result.get("confidence", 0),
+            evidence_summary=_summarize_evidence(query_result),
+        ),
         source="detection_agent",
     )
 
@@ -81,36 +89,110 @@ async def analyze_without_llm(
 ) -> dict[str, Any]:
     """LLM 없이 임계치 기반 이상 생성 + 토픽 발행."""
     title = f"[{rule['category'].upper()}] {rule['rule_name']} - {severity}"
+    threshold_value = rule.get("critical_value") if severity == "critical" else rule.get("warning_value")
+    op = rule.get("threshold_op", ">")
+
     anomaly_data = {
         "rule_id": rule["rule_id"],
         "category": rule["category"],
         "severity": severity,
         "title": title,
-        "description": f"측정값 {measured_value} 이 임계치를 초과",
+        "description": f"측정값 {measured_value} {op} 임계치 {threshold_value}",
         "measured_value": measured_value,
-        "threshold_value": rule.get("critical_value") if severity == "critical" else rule.get("warning_value"),
+        "threshold_value": threshold_value,
         "affected_entity": "",
     }
 
     anomaly_id = await queries.insert_anomaly(anomaly_data)
+    detected_at = datetime.now().isoformat()
     logger.info("Anomaly (no-llm) created: id=%d rule=%s", anomaly_id, rule["rule_name"])
 
     await bus.publish(
         topic=TOPIC_ANOMALY_DETECTED,
-        payload={
-            "anomaly_id": anomaly_id,
-            "rule": rule,
-            "severity": severity,
-            "title": title,
-            "analysis": anomaly_data["description"],
-            "measured_value": measured_value,
-            "affected_entity": "",
-            "query_result": [],
-        },
+        payload=_build_detected_message(
+            anomaly_id=anomaly_id,
+            detected_at=detected_at,
+            rule=rule,
+            severity=severity,
+            title=title,
+            analysis=f"측정값 {measured_value} {op} 임계치 {threshold_value}",
+            measured_value=measured_value,
+            threshold_value=threshold_value,
+            affected_entity="",
+            confidence=1.0,
+            evidence_summary=[],
+        ),
         source="detection_agent",
     )
 
     return {**anomaly_data, "anomaly_id": anomaly_id}
+
+
+def _build_detected_message(
+    *,
+    anomaly_id: int,
+    detected_at: str,
+    rule: dict[str, Any],
+    severity: str,
+    title: str,
+    analysis: str,
+    measured_value: float,
+    threshold_value: float | None,
+    affected_entity: str,
+    confidence: float,
+    evidence_summary: list[str],
+) -> dict[str, Any]:
+    """anomaly.detected 토픽 메시지 — 자기완결형.
+
+    이 메시지 하나만 봐도 무슨 이상이 왜 감지됐는지 전부 파악 가능.
+    """
+    return {
+        # ── 식별 ──
+        "anomaly_id": anomaly_id,
+        "detected_at": detected_at,
+
+        # ── 무엇을 감지했는가 ──
+        "title": title,
+        "severity": severity,
+        "category": rule.get("category", ""),
+        "subcategory": rule.get("subcategory", ""),
+        "affected_entity": affected_entity,
+
+        # ── 어떻게 감지했는가 (규칙 정보) ──
+        "detection": {
+            "rule_id": rule.get("rule_id"),
+            "rule_name": rule.get("rule_name", ""),
+            "check_type": rule.get("check_type", ""),
+            "measured_value": measured_value,
+            "threshold": {
+                "operator": rule.get("threshold_op", ">"),
+                "warning": rule.get("warning_value"),
+                "critical": rule.get("critical_value"),
+            },
+            "confidence": confidence,
+        },
+
+        # ── 감지 에이전트의 판단 ──
+        "analysis": analysis,
+
+        # ── 근거 데이터 요약 (원본 데이터는 포함하지 않음) ──
+        "evidence_summary": evidence_summary,
+    }
+
+
+def _summarize_evidence(query_result: list[dict[str, Any]], max_items: int = 5) -> list[str]:
+    """쿼리 결과를 사람이 읽을 수 있는 요약 문장 목록으로 변환."""
+    summaries = []
+    for row in query_result[:max_items]:
+        parts = []
+        for k, v in row.items():
+            if v is not None:
+                parts.append(f"{k}={v}")
+        if parts:
+            summaries.append(", ".join(parts))
+    if len(query_result) > max_items:
+        summaries.append(f"... 외 {len(query_result) - max_items}건")
+    return summaries
 
 
 def _build_user_message(
@@ -118,7 +200,6 @@ def _build_user_message(
     measured_value: float,
     query_result: list[dict[str, Any]],
 ) -> str:
-    import json
     return f"""## 규칙 위반 감지
 
 **규칙**: {rule['rule_name']}

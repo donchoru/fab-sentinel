@@ -1,9 +1,14 @@
-"""원인분석(RCA) 에이전트 — anomaly.detected 토픽 구독 → 근본원인 분석."""
+"""원인분석(RCA) 에이전트 — anomaly.detected 토픽 구독 → 근본원인 분석.
+
+발행하는 메시지에는 원래 이상 정보 + RCA 분석 결과가 모두 포함됨.
+메시지만 봐도 "무슨 이상이 왜 발생했고, 어떻게 해야 하는지" 전부 파악 가능.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from agent.agent_loop import run_agent_loop
@@ -46,29 +51,75 @@ async def handle_anomaly(msg: Message) -> None:
             result.get("confidence", 0),
         )
 
-        # RCA 완료 토픽 발행
+        completed_at = datetime.now().isoformat()
+
+        # 원본 이상 정보를 그대로 포함한 자기완결형 메시지
+        anomaly_context = {
+            "anomaly_id": payload["anomaly_id"],
+            "detected_at": payload.get("detected_at", ""),
+            "title": payload.get("title", ""),
+            "severity": payload.get("severity", "warning"),
+            "category": payload.get("category", ""),
+            "subcategory": payload.get("subcategory", ""),
+            "affected_entity": payload.get("affected_entity", ""),
+            "detection": payload.get("detection", {}),
+            "detection_analysis": payload.get("analysis", ""),
+        }
+
+        # rca.completed 토픽 — 이상 정보 + RCA 결과 전부 포함
         await bus.publish(
             topic=TOPIC_RCA_COMPLETED,
             payload={
+                # ── 식별 ──
                 "anomaly_id": anomaly_id,
-                "rca_result": result,
-                "severity": payload.get("severity", "warning"),
-                "title": payload.get("title", ""),
-                "category": payload.get("rule", {}).get("category", ""),
+                "completed_at": completed_at,
+
+                # ── 원래 이상 정보 (감지 에이전트가 보낸 것 그대로) ──
+                "anomaly": anomaly_context,
+
+                # ── RCA 분석 결과 ──
+                "rca": {
+                    "root_cause": result.get("root_cause", ""),
+                    "evidence": result.get("evidence", []),
+                    "impact_scope": result.get("impact_scope", ""),
+                    "suggested_actions": result.get("suggested_actions", []),
+                    "confidence": result.get("confidence", 0),
+                    "related_entities": result.get("related_entities", []),
+                },
             },
             source="rca_agent",
         )
 
-        # 알림 요청 토픽 발행
+        # alert.request 토픽 — 알림에 필요한 전체 맥락 포함
         await bus.publish(
             topic=TOPIC_ALERT_REQUEST,
             payload={
+                # ── 식별 ──
                 "anomaly_id": anomaly_id,
-                "severity": payload.get("severity", "warning"),
-                "category": payload.get("rule", {}).get("category", ""),
+
+                # ── 이상 요약 ──
                 "title": payload.get("title", ""),
-                "analysis": result.get("root_cause", ""),
+                "severity": payload.get("severity", "warning"),
+                "category": payload.get("category", ""),
+                "subcategory": payload.get("subcategory", ""),
+                "affected_entity": payload.get("affected_entity", ""),
+                "detected_at": payload.get("detected_at", ""),
+
+                # ── 감지 정보 ──
+                "detection": {
+                    "rule_name": payload.get("detection", {}).get("rule_name", ""),
+                    "check_type": payload.get("detection", {}).get("check_type", ""),
+                    "measured_value": payload.get("detection", {}).get("measured_value"),
+                    "threshold": payload.get("detection", {}).get("threshold", {}),
+                },
+
+                # ── RCA 결과 ──
+                "root_cause": result.get("root_cause", ""),
+                "evidence": result.get("evidence", []),
+                "impact_scope": result.get("impact_scope", ""),
                 "suggested_actions": result.get("suggested_actions", []),
+                "related_entities": result.get("related_entities", []),
+                "rca_confidence": result.get("confidence", 0),
             },
             source="rca_agent",
         )
@@ -93,24 +144,30 @@ async def _run_rca(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_rca_message(payload: dict[str, Any]) -> str:
-    rule = payload.get("rule", {})
-    query_result = payload.get("query_result", [])
+    detection = payload.get("detection", {})
+    threshold = detection.get("threshold", {})
+    evidence = payload.get("evidence_summary", [])
+
     return f"""## 이상 감지 — 근본원인 분석 요청
 
 **이상 ID**: {payload['anomaly_id']}
+**감지 시각**: {payload.get('detected_at', '')}
 **제목**: {payload.get('title', '')}
 **심각도**: {payload.get('severity', 'warning')}
-**카테고리**: {rule.get('category', '')} / {rule.get('subcategory', '')}
-**측정값**: {payload.get('measured_value', '')}
+**카테고리**: {payload.get('category', '')} / {payload.get('subcategory', '')}
 **영향 엔티티**: {payload.get('affected_entity', '')}
+
+### 감지 규칙
+- 규칙명: {detection.get('rule_name', '')}
+- 검사 유형: {detection.get('check_type', '')}
+- 측정값: {detection.get('measured_value', '')}
+- 임계치: 경고 {threshold.get('warning', 'N/A')} / 위험 {threshold.get('critical', 'N/A')} (연산자: {threshold.get('operator', '>')})
 
 ### 감지 에이전트 분석
 {payload.get('analysis', '정보 없음')}
 
-### 원본 데이터 (일부)
-```json
-{json.dumps(query_result[:10], default=str, ensure_ascii=False, indent=2)}
-```
+### 근거 데이터 요약
+{chr(10).join(f'- {e}' for e in evidence) if evidence else '(없음)'}
 
 위 이상의 근본 원인을 분석하세요.
 제공된 도구로 관련 설비/공정/물류 데이터를 추가 조회하여

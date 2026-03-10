@@ -144,16 +144,14 @@ class TopicBus:
             m.min_processing_ms = min(m.min_processing_ms, elapsed_ms)
             m.max_processing_ms = max(m.max_processing_ms, elapsed_ms)
 
-            # 최근 메시지 기록
+            # 최근 메시지 기록 — payload 전체 포함 (자기완결형)
             self._recent_messages.append({
                 "topic": msg.topic,
                 "source": msg.source,
                 "timestamp": msg.timestamp.isoformat(),
                 "status": "delivered" if all_ok else "failed",
                 "processing_ms": round(elapsed_ms, 1),
-                "anomaly_id": msg.payload.get("anomaly_id"),
-                "severity": msg.payload.get("severity"),
-                "title": msg.payload.get("title", "")[:80],
+                "payload": msg.payload,
             })
             if len(self._recent_messages) > self._max_recent:
                 self._recent_messages = self._recent_messages[-self._max_recent:]
