@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "oracle-mcp": {
+      "command": "/Users/leedongcheol/workspace/oracle-mcp/.venv/bin/python",
+      "args": ["/Users/leedongcheol/workspace/oracle-mcp/mcp_server.py"]
+    }
+  }
+}
