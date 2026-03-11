@@ -130,42 +130,6 @@ async def add_anomaly_note(anomaly_id: int, note: str) -> int:
     )
 
 
-async def set_anomaly_correlation(anomaly_id: int, correlation_id: int) -> int:
-    return await execute_dml(
-        "UPDATE anomalies SET correlation_id = :cid WHERE anomaly_id = :id",
-        {"id": anomaly_id, "cid": correlation_id},
-    )
-
-
-# ── Correlations ──
-
-async def insert_correlation(data: dict[str, Any]) -> int:
-    cols = ", ".join(data.keys())
-    vals = ", ".join(f":{k}" for k in data.keys())
-    sql = f"INSERT INTO correlations ({cols}) VALUES ({vals}) RETURNING correlation_id INTO :out_id"
-    return int(await execute_returning(sql, data))
-
-
-async def get_correlations(limit: int = 50) -> list[dict[str, Any]]:
-    return await execute(
-        "SELECT * FROM correlations ORDER BY created_at DESC FETCH NEXT :lim ROWS ONLY",
-        {"lim": limit},
-    )
-
-
-async def get_correlation_with_anomalies(correlation_id: int) -> dict[str, Any] | None:
-    corrs = await execute(
-        "SELECT * FROM correlations WHERE correlation_id = :id", {"id": correlation_id}
-    )
-    if not corrs:
-        return None
-    anoms = await execute(
-        "SELECT * FROM anomalies WHERE correlation_id = :id ORDER BY detected_at",
-        {"id": correlation_id},
-    )
-    result = corrs[0]
-    result["anomalies"] = anoms
-    return result
 
 
 # ── RCA ──

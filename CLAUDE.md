@@ -16,9 +16,9 @@ Detection Scheduler (매 5분)
 ```
 
 ### 추후 확장
-- **RCA (근본원인분석)**: agent/rca_agent.py 참고. DB 폴링 방식으로 구현 가능.
-- **알림**: alert/router.py 참고. DB 기록 → 외부 채널 연동.
-- **에스컬레이션**: alert/escalation.py 참고.
+- **알림**: 이상 발생 시 이메일/메신저 자동 알림
+- **연쇄 이상감지**: 다건 이상의 시간/공간/인과 관계 분석
+- **에스컬레이션**: 미확인 이상 자동 재알림 + SLA 관리
 
 ## 규칙 관리 — YAML 기반
 - **`rules.yaml`이 규칙의 원본** (source of truth)
@@ -38,19 +38,19 @@ Detection Scheduler (매 5분)
 | `rules/engine.py` | threshold/delta/absence/llm 평가 |
 | `api/rules.py` | 규칙 CRUD + AI 자연어 생성 + YAML 동기화 |
 | `db/queries.py` | 모든 DB 쿼리 |
-| `nicegui_app/main.py` | NiceGUI 4페이지 대시보드 |
-| `simulator/runner.py` | SQLite 시뮬레이터 |
+| `nicegui_app/main.py` | NiceGUI 5페이지 대시보드 |
+| `api/users.py` | 사용자 CRUD + 로그인/회원가입 |
 
 ## DB 테이블 (sentinel_ 접두사 없음)
 - `detection_rules` — 감지 규칙
 - `anomalies` — 감지된 이상
-- `correlations` — 상관 그룹 (추후)
+- `users` — 사용자 계정
 - `detection_cycles` — 감지 사이클 로그
 
-## 시뮬레이터 실행
+## 실행
 ```bash
-python -m simulator.runner           # API (:8600)
-python -m nicegui_app.main           # 대시보드 (:3009)
+python main.py --sqlite simulator.db  # API (:8600)
+python -m nicegui_app.main            # 대시보드 (:3009)
 ```
 
 ## 주의사항
