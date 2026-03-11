@@ -697,6 +697,54 @@ MES 테이블은 **기존 테이블을 그대로 사용**합니다. `detection_r
 
 ---
 
+## MCP 도구 연동 — Oracle MCP
+
+이 프로젝트는 [Oracle MCP](https://github.com/donchoru/oracle-mcp) 서버와 연동되어 있습니다. Claude Code에서 이 프로젝트를 열면 **뉴스 검색, 시세 조회, 작업 보드, API 비용** 등의 SQL 도구를 자동으로 사용할 수 있습니다.
+
+### 이미 설정됨
+
+프로젝트 루트에 `.mcp.json`이 포함되어 있어, 별도 설정 없이 바로 사용 가능합니다:
+
+```json
+{
+  "mcpServers": {
+    "oracle-mcp": {
+      "command": "/Users/leedongcheol/workspace/oracle-mcp/.venv/bin/python",
+      "args": ["/Users/leedongcheol/workspace/oracle-mcp/mcp_server.py"]
+    }
+  }
+}
+```
+
+### 다른 프로젝트에서도 사용하려면
+
+1. 해당 프로젝트 루트에 위 `.mcp.json` 파일을 복사합니다
+2. Claude Code가 프로젝트를 열 때 자동으로 MCP 서버를 로딩합니다
+3. 끝! 별도 서버 실행 없이 Claude가 도구를 호출합니다
+
+### 사용 가능한 도구
+
+| 도구 | 설명 | 태그 |
+|------|------|------|
+| `list_recent_articles` | 최근 크롤링된 뉴스 기사 목록 조회 | 뉴스 |
+| `search_articles_by_keyword` | 뉴스 기사 키워드 검색 | 뉴스 |
+| `get_article_detail` | 특정 뉴스 기사 전문 조회 | 뉴스 |
+| `get_latest_market_price` | 종목 최신 시세 조회 | 시세 |
+| `get_my_portfolio` | 투자 포트폴리오 전체 조회 | 시세 |
+| `list_tasks_by_status` | Trellis 작업 보드 조회 | 관리 |
+| `get_api_usage_cost` | LLM API 사용량/비용 집계 | 관리 |
+
+> 도구는 Admin UI (`http://localhost:9000`)에서 No-Code로 추가/수정/삭제할 수 있습니다.
+
+### 도구를 새로 추가하려면
+
+1. Oracle MCP Admin UI 접속: `http://localhost:9000`
+2. **연결 관리** → DB 연결 추가 (SQLite 경로 또는 Oracle 접속 정보)
+3. **도구 관리** → "새 도구" → SQL 작성 → 파라미터 자동 감지 → 저장
+4. 저장 즉시 모든 프로젝트에서 사용 가능 (MCP 서버 재시작 불필요)
+
+---
+
 ## TODO — 추후 확장
 
 | 우선순위 | 기능 | 설명 |
