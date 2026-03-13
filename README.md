@@ -182,7 +182,7 @@
 
 ### 요구사항
 
-- **Python 3.12 이상** (3.12 / 3.13 / 3.14 모두 가능)
+- **Python 3.11 이상** (3.11 / 3.12 / 3.13 모두 가능)
 - 운영체제: Windows / macOS / Linux
 - Oracle DB 불필요 (SQLite 시뮬레이터 모드)
 
@@ -215,17 +215,20 @@ uv run python data_injector.py --speed 100 --reset
 
 ### 수동 설정 (pip)
 
+**macOS / Linux:**
 ```bash
-# 1. 가상환경 생성 + 패키지 설치
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+python3.11 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python init_db.py
+.venv/bin/python data_injector.py --speed 100 --reset   # 선택
+```
 
-# 2. DB 초기화 (테이블 + 정상 데이터 + 규칙 + 관리자 계정)
-python init_db.py
-
-# 3. 데모 데이터 주입 (선택)
-python data_injector.py --speed 100 --reset
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.venv\Scripts\pip.exe install -r requirements.txt
+.venv\Scripts\python.exe init_db.py
+.venv\Scripts\python.exe data_injector.py --speed 100 --reset   # 선택
 ```
 
 ---
@@ -236,9 +239,14 @@ python data_injector.py --speed 100 --reset
 
 ### 터미널 1 — API 서버
 
+**macOS / Linux:**
 ```bash
-source .venv/bin/activate
-python main.py --sqlite simulator.db --interval 60
+.venv/bin/python main.py --sqlite simulator.db --interval 60
+```
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\python.exe main.py --sqlite simulator.db --interval 60
 ```
 
 ```
@@ -256,9 +264,14 @@ FAB 이상감지 시스템 running
 
 ### 터미널 2 — 대시보드
 
+**macOS / Linux:**
 ```bash
-source .venv/bin/activate
-python -m nicegui_app.main
+.venv/bin/python -m nicegui_app.main
+```
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\python.exe -m nicegui_app.main
 ```
 
 브라우저에서 **http://localhost:3009** 접속.
@@ -674,7 +687,7 @@ rules:
 
 | 영역 | 기술 | 설명 |
 |------|------|------|
-| **언어** | Python 3.12+ | 비동기(asyncio) 기반 |
+| **언어** | Python 3.11+ | 비동기(asyncio) 기반 |
 | **API 서버** | FastAPI + Uvicorn | 비동기 Web API (포트 8600) |
 | **대시보드** | NiceGUI + Plotly | 5페이지 SPA 대시보드 (포트 3009) |
 | **DB (운영)** | Oracle (oracledb thin) | Instant Client 없이 순수 Python 연결 |
