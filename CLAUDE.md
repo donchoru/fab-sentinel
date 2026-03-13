@@ -48,9 +48,27 @@ Detection Scheduler (매 5분)
 - `detection_cycles` — 감지 사이클 로그
 
 ## 실행
+
+### 초기 설정
 ```bash
-.venv/bin/python main.py --sqlite simulator.db  # API (:8600)
-.venv/bin/python -m nicegui_app.main            # 대시보드 (:3009)
+./setup.sh              # 자동 설정 (venv + pip + DB)
+./setup.sh --with-demo  # 데모 시나리오 포함
+./setup.sh --reset      # DB 재생성
+```
+
+### 서버 시작
+```bash
+# macOS / Linux
+.venv/bin/python main.py --sqlite simulator.db       # API (:8600)
+.venv/bin/python -m nicegui_app.main                  # 대시보드 (:3009)
+
+# Windows (PowerShell)
+.venv\Scripts\python.exe main.py --sqlite simulator.db   # API (:8600)
+.venv\Scripts\python.exe -m nicegui_app.main              # 대시보드 (:3009)
+
+# Windows (CMD)
+.venv\Scripts\python.exe main.py --sqlite simulator.db
+.venv\Scripts\python.exe -m nicegui_app.main
 ```
 
 ## 주의사항

@@ -152,11 +152,13 @@ echo -e "${BOLD}╚════════════════════�
 echo ""
 echo -e "${BOLD}실행 방법:${NC}"
 echo ""
-echo -e "  ${YELLOW}# 터미널 1 — API 서버${NC}"
-echo "  .venv/bin/python main.py --sqlite simulator.db --interval 60"
+echo -e "  ${YELLOW}# macOS / Linux${NC}"
+echo "  .venv/bin/python main.py --sqlite simulator.db --interval 60   # API"
+echo "  .venv/bin/python -m nicegui_app.main                            # 대시보드"
 echo ""
-echo -e "  ${YELLOW}# 터미널 2 — 대시보드${NC}"
-echo "  .venv/bin/python -m nicegui_app.main"
+echo -e "  ${YELLOW}# Windows (PowerShell)${NC}"
+echo '  .venv\Scripts\python.exe main.py --sqlite simulator.db --interval 60'
+echo '  .venv\Scripts\python.exe -m nicegui_app.main'
 echo ""
 echo -e "${BOLD}접속:${NC}"
 echo -e "  대시보드  →  ${GREEN}http://localhost:3009${NC}"
