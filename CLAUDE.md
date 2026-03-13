@@ -49,8 +49,8 @@ Detection Scheduler (매 5분)
 
 ## 실행
 ```bash
-python main.py --sqlite simulator.db  # API (:8600)
-python -m nicegui_app.main            # 대시보드 (:3009)
+.venv/bin/python main.py --sqlite simulator.db  # API (:8600)
+.venv/bin/python -m nicegui_app.main            # 대시보드 (:3009)
 ```
 
 ## 주의사항
