@@ -65,10 +65,6 @@ Detection Scheduler (매 5분)
 # Windows (PowerShell)
 .venv\Scripts\python.exe main.py --sqlite simulator.db   # API (:8600)
 .venv\Scripts\python.exe -m nicegui_app.main              # 대시보드 (:3009)
-
-# Windows (CMD)
-.venv\Scripts\python.exe main.py --sqlite simulator.db
-.venv\Scripts\python.exe -m nicegui_app.main
 ```
 
 ## 주의사항
